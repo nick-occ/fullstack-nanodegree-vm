@@ -4,26 +4,30 @@
 #
 
 import psycopg2
+import sys
 
-def connect():
+def connect(db="tournament"):
     """Connect to the PostgreSQL database.  Returns a database connection."""
-    return psycopg2.connect("dbname=tournament")
+    try:
+        conn = psycopg2.connect("dbname={}".format(db))
+        c = conn.cursor()
+        return conn, c
+    except:
+        print("unable to connect to db")
+        sys.exit()
 
 
 def deleteMatches():
     """Remove all the match records from the database."""
-    conn = connect()
-    c = conn.cursor()
+    conn,c = connect()
     c.execute("delete from matches")
-    c.execute("update players set wins = 0, matches = 0")
     conn.commit()
     conn.close()
 
 
 def deletePlayers():
     """Remove all the player records from the database."""
-    conn = connect()
-    c = conn.cursor()
+    conn,c = connect()
     c.execute("delete from players")
     conn.commit()
     conn.close()
@@ -31,8 +35,7 @@ def deletePlayers():
 
 def countPlayers():
     """Returns the number of players currently registered."""
-    conn = connect()
-    c = conn.cursor()
+    conn,c = connect()
     c.execute("select count(*) from players")
     count = c.fetchone()
     count = count[0]
@@ -49,9 +52,10 @@ def registerPlayer(name):
       name: the player's full name (need not be unique).
     """
     
-    conn = connect()
-    c = conn.cursor()
-    c.execute("insert into players (player_name,matches,wins) values ('" + name.replace("'","''") + "',0,0)")    
+    conn,c = connect()
+    sql = "insert into players (player_name) values (%s)"
+    data = (name,)
+    c.execute(sql,data)    
     conn.commit()
     conn.close()
 
@@ -68,11 +72,9 @@ def playerStandings():
       wins: the number of matches the player has won
       matches: the number of matches the player has played
     """
-    conn = connect()
-    c = conn.cursor()
-    c.execute("select player_id, player_name, wins, matches from players")
+    conn,c = connect()
+    c.execute("select * from standings")
     playerStandings = c.fetchall()
-    playerStandings = sorted(playerStandings,key=lambda x:x[1], reverse=True)
     conn.close()
     return playerStandings
 
@@ -84,18 +86,11 @@ def reportMatch(winner, loser):
       winner:  the id number of the player who won
       loser:  the id number of the player who lost
     """
-    conn = connect()
-    c = conn.cursor()
-    c.execute("insert into matches (winner, loser) values (" + str(winner) + ", " + str(loser) + ")")
-
-    c.execute("update players set matches = (select sum(matches) + 1 from players" + 
-    " where player_id = " + str(winner) + ") where player_id = " + str(winner))
-
-    c.execute("update players set matches = (select sum(matches) + 1 from players" + 
-    " where player_id = " + str(loser) + ") where player_id = " + str(loser))
-
-    c.execute("update players set wins = (select sum(wins) + 1 from players" + 
-    " where player_id = " + str(winner) + ") where player_id = " + str(winner))
+    conn,c = connect()
+        
+    sql = "insert into matches (winner, loser) values (%s,%s)"
+    data = (str(winner),str(loser),)
+    c.execute(sql,data)
 
     conn.commit()
     conn.close()
@@ -116,25 +111,19 @@ def swissPairings():
         id2: the second player's unique id
         name2: the second player's name
     """
-    conn = connect()
-    c = conn.cursor()
-    c.execute("select player_id, player_name from players order by wins")
-    pairings = c.fetchall()
-    conn.close()
+    
+    pairings = playerStandings()
     id1 = None
     name1 = None
     id2 = None
     name2 = None
     teamPairings = []
-    x = 0
-    while x < len(pairings):
-        if x % 2 == 0:
-            id1 = pairings[x][0] 
-            name1 = pairings[x][1] 
-        else:
-            id2 = pairings[x][0] 
-            name2 = pairings[x][1] 
-            teamPairings.append((id1,name1,id2,name2))
-        x=x+1
+    
+    for x in xrange(0,len(pairings),2):
+        id1 = pairings[x][0] 
+        name1 = pairings[x][1] 
+        id2 = pairings[x+1][0] 
+        name2 = pairings[x+1][1]
+        teamPairings.append((id1,name1,id2,name2))
 
     return teamPairings
